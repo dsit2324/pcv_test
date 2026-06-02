@@ -14,59 +14,64 @@ RAM=2048
 CPUS=2
 DISK_SIZE=20000
 
+ISO="/home/student/Stažené/ubuntu-24.04.3-live-server-amd64.iso"
+
 SSH_PORT=2222
 
 ### =========================
-### ISO AUTO FIND
+### FIND ISO CHECK
 ### =========================
-ISO_PATH=$(find ~ -type f -name "ubuntu-24.04*.iso" 2>/dev/null | head -n 1)
-
-if [ -z "$ISO_PATH" ]; then
-  echo "❌ ISO not found"
+if [ ! -f "$ISO" ]; then
+  echo "❌ ISO not found: $ISO"
   exit 1
 fi
 
-echo "📀 ISO: $ISO_PATH"
+echo "📀 ISO: $ISO"
 
 ### =========================
-### SAFE CLEANUP (NO REGISTRY TOUCHING)
+### CLEANUP (SAFE + STABLE)
 ### =========================
 echo "🧹 Cleanup..."
 
+# kill possible locked processes
 pkill -f VBoxHeadless 2>/dev/null || true
 pkill -f VirtualBox 2>/dev/null || true
 
 sleep 2
 
+# remove VM if exists
 VBoxManage controlvm "$VM_NAME" poweroff 2>/dev/null || true
 VBoxManage unregistervm "$VM_NAME" --delete 2>/dev/null || true
 
-# IMPORTANT: only delete files, NOT VirtualBox registry
+# remove only files (NO VirtualBox registry touch)
 rm -f "$HOME/$VM_NAME"*.vdi 2>/dev/null || true
 
 ### =========================
-### UNIQUE DISK (FIX FOR ALL UUID ERRORS)
+### UNIQUE DISK (CRITICAL FIX)
 ### =========================
-DISK_PATH="$HOME/${VM_NAME}-$(date +%s).vdi"
+DISK="$HOME/${VM_NAME}-$(date +%s).vdi"
 
 ### =========================
 ### CREATE VM
 ### =========================
 echo "📦 Creating VM..."
 
-VBoxManage createvm --name "$VM_NAME" --ostype "Ubuntu_64" --register
+VBoxManage createvm --name "$VM_NAME" --ostype Ubuntu_64 --register
 
 VBoxManage modifyvm "$VM_NAME" \
   --memory $RAM \
   --cpus $CPUS \
   --nic1 nat \
-  --natpf1 "ssh,tcp,127.0.0.1,$SSH_PORT,,22"
+  --graphicscontroller vmsvga \
+  --vram 128 \
+  --boot1 dvd \
+  --boot2 disk
 
 ### =========================
 ### CREATE DISK
 ### =========================
 VBoxManage createmedium disk \
-  --filename "$DISK_PATH" \
+  --filename "$DISK" \
   --size $DISK_SIZE
 
 ### =========================
@@ -78,14 +83,14 @@ VBoxManage storagectl "$VM_NAME" \
   --controller IntelAhci
 
 ### =========================
-### ATTACH DISK FIRST
+### ATTACH DISK
 ### =========================
 VBoxManage storageattach "$VM_NAME" \
   --storagectl "SATA" \
   --port 0 \
   --device 0 \
   --type hdd \
-  --medium "$DISK_PATH"
+  --medium "$DISK"
 
 ### =========================
 ### ATTACH ISO
@@ -95,26 +100,16 @@ VBoxManage storageattach "$VM_NAME" \
   --port 1 \
   --device 0 \
   --type dvddrive \
-  --medium "$ISO_PATH"
+  --medium "$ISO"
 
 ### =========================
-### UNATTENDED INSTALL (FIXED HOSTNAME)
+### START VM (GUI = no blinking issues)
 ### =========================
-VBoxManage unattended install "$VM_NAME" \
-  --iso="$ISO_PATH" \
-  --user="$USERNAME" \
-  --password="$PASSWORD" \
-  --full-user-name="Admin User" \
-  --hostname="${VM_NAME}.local" \
-  --locale="en_US" \
-  --time-zone="Europe/Prague" \
-  --install-additions
-
-### =========================
-### START VM
-### =========================
-VBoxManage startvm "$VM_NAME" --type headless
-
 echo ""
-echo "✅ DONE"
-echo "SSH: ssh $USERNAME@127.0.0.1 -p $SSH_PORT"
+echo "🚀 Starting VM (GUI mode)"
+echo "👉 Install Ubuntu manually:"
+echo "   user: $USERNAME"
+echo "   pass: $PASSWORD"
+echo ""
+
+VBoxManage startvm "$VM_NAME" --type gui
